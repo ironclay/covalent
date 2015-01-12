@@ -233,14 +233,13 @@ public final class Serializers {
         @Override
         public Blob read(Input input) throws IOException {
             Blob blob = Blob.create();
-            blob.writeFrom(input, input.readLong());
+            blob.readFrom(input);
             return blob;
         }
 
         @Override
         public void write(Output output, Blob value) throws IOException {
-            output.writeLong(value.size());
-            value.copyTo(output);
+            value.writeTo(output);
         }
 
     };
@@ -252,17 +251,14 @@ public final class Serializers {
 
         @Override
         public Clob read(Input input) throws IOException {
-            Charset charset = Charset.forName(input.readUTF());
-            Clob clob = Clob.create(charset);
-            clob.writeFrom(new InputStreamReader(input, charset), input.readLong());
+            Clob clob = Clob.create();
+            clob.readFrom(input);
             return clob;
         }
 
         @Override
         public void write(Output output, Clob value) throws IOException {
-            output.writeUTF(value.charset().name());
-            output.writeLong(value.length());
-            value.copyTo(new OutputStreamWriter(output, value.charset()));
+            value.writeTo(output);
         }
 
     };

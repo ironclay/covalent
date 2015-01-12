@@ -10,11 +10,12 @@ import java.io.OutputStreamWriter;
 import java.io.Reader;
 import java.io.Writer;
 import java.nio.charset.Charset;
+import java.nio.charset.StandardCharsets;
 import java.nio.file.Path;
 import org.apache.commons.io.IOUtils;
 
 /**
- * A clob is used to store a large volume of characters. It keeps the data in memory until a threshold is exceeded.
+ * A clob is used to store a large volume of characters.
  * 
  * @author Mario Ceste, Jr.
  * @since 1.0
@@ -22,58 +23,24 @@ import org.apache.commons.io.IOUtils;
 public final class Clob implements Closeable {
 
     /**
+     * Indicates the character encoding that is used to convert between characters and bytes.
+     * <p/>
+     * Default is UTF-8.
+     */
+    public static final Charset DEFAULT_CHARSET = StandardCharsets.UTF_8;
+
+    /**
      * The blob.
      */
     private final Blob blob;
 
     /**
-     * The encoding.
-     */
-    private final Charset charset;
-
-    /**
-     * The length.
-     */
-    private long length;
-
-    /**
      * Sole constructor.
      * 
      * @param blob the blob
-     * @param charset the encoding
-     * @param length the initial size, typically zero
      */
-    private Clob(Blob blob, Charset charset, long length) {
+    private Clob(Blob blob) {
         this.blob = blob;
-        this.charset = charset;
-        this.length = length;
-    }
-
-    /**
-     * Return the length of this clob.
-     * 
-     * @return the clob's length
-     */
-    public long length() {
-        return length;
-    }
-
-    /**
-     * Determine whether this clob does not contain any character.
-     * 
-     * @return {@code true} if the length is zero, or {@code false} otherwise
-     */
-    public boolean isEmpty() {
-        return length() == 0L;
-    }
-
-    /**
-     * Return the {@link Charset charset} that is used by this clob to convert between characters and bytes.
-     * 
-     * @return the charset
-     */
-    public Charset charset() {
-        return charset;
     }
 
     /**
@@ -86,7 +53,7 @@ public final class Clob implements Closeable {
      * @see InputStreamReader#InputStreamReader(java.io.InputStream, java.nio.charset.Charset) 
      */
     public Reader openReader() throws IOException {
-        return new InputStreamReader(blob.openInputStream(), charset);
+        return new InputStreamReader(blob.openInputStream(), DEFAULT_CHARSET);
     }
 
     /**
@@ -99,7 +66,7 @@ public final class Clob implements Closeable {
      * @see OutputStreamWriter#OutputStreamWriter(java.io.OutputStream, java.nio.charset.Charset) 
      */
     public Writer openWriter() throws IOException {
-        return new OutputStreamWriter(blob.openOutputStream(), charset);
+        return new OutputStreamWriter(blob.openOutputStream(), DEFAULT_CHARSET);
     }
 
     /**
@@ -125,20 +92,6 @@ public final class Clob implements Closeable {
     public void writeFrom(Reader in) throws IOException {
         try (Writer out = openWriter()) {
             IOUtils.copyLarge(in, out);
-        }
-    }
-
-    /**
-     * Write the desired number of characters from the given {@link Reader} to this clob.
-     * 
-     * @param in the character stream to read from
-     * @param len the number of characters to read
-     * 
-     * @throws IOException if an I/O occurs in the process of reading from the input or writing to this clob
-     */
-    public void writeFrom(Reader in, long len) throws IOException {
-        try (Writer out = openWriter()) {
-            IOUtils.copyLarge(in, out, 0L, len);
         }
     }
 
@@ -190,6 +143,37 @@ public final class Clob implements Closeable {
         blob.copyTo(file);
     }
 
+    /**
+     * Read the contents of this clob from the given input stream.
+     * 
+     * @param input the Input to read from
+     * 
+     * @throws IOException if an I/O occurs in the process of deserializing this blob
+     * 
+     * @see #writeTo(covalent.io.Output) 
+     */
+    public void readFrom(Input input) throws IOException {
+        blob.readFrom(input);
+    }
+
+    /**
+     * Write the contents of this clob to the given output stream.
+     * 
+     * @param output the Output to write to
+     * 
+     * @throws IOException if an I/O occurs in the process of serializing this blob
+     * 
+     * @see Blob#writeTo(covalent.io.Output) 
+     */
+    public void writeTo(Output output) throws IOException {
+        blob.writeTo(output);
+    }
+
+    /**
+     * Close this clob and release any resources associated with it.
+     * 
+     * @throws IOException if an I/O error occurs
+     */
     @Override
     public void close() throws IOException {
         blob.close();
@@ -198,12 +182,21 @@ public final class Clob implements Closeable {
     /**
      * Create an empty clob.
      * 
-     * @param charset the character encoding
+     * @return the clob
+     */
+    public static Clob create() {
+        return new Clob(Blob.create());
+    }
+
+    /**
+     * Create a clob that wraps the given string.
+     * 
+     * @param s the String to wrap
      * 
      * @return the clob
      */
-    public static Clob create(Charset charset) {
-        return new Clob(Blob.create(), charset, 0L);
+    public static Clob create(String s) {
+        return new Clob(Blob.create(s.getBytes(DEFAULT_CHARSET)));
     }
 
 }

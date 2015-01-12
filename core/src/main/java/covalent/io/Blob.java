@@ -9,9 +9,9 @@ import java.io.InputStream;
 import java.io.OutputStream;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.nio.file.StandardOpenOption;
 import org.apache.commons.io.FileUtils;
 import org.apache.commons.io.IOUtils;
-import org.apache.commons.io.output.NullOutputStream;
 import org.apache.commons.io.output.ProxyOutputStream;
 
 /**
@@ -41,7 +41,7 @@ public final class Blob implements Closeable {
     /**
      * The buffer.
      */
-    private final byte[] buffer;
+    private byte[] buffer;
 
     /**
      * The size.
@@ -93,7 +93,7 @@ public final class Blob implements Closeable {
      * @see ByteArrayInputStream
      */
     public InputStream openInputStream() throws IOException {
-        return (file != null) ? Files.newInputStream(file) : new ByteArrayInputStream(buffer, 0, (int) size);
+        return (size > buffer.length) ? Files.newInputStream(file) : new ByteArrayInputStream(buffer, 0, (int) size);
     }
 
     /**
@@ -130,25 +130,6 @@ public final class Blob implements Closeable {
     public void writeFrom(InputStream in) throws IOException {
         try (OutputStream out = openOutputStream()) {
             IOUtils.copyLarge(in, out);
-        }
-    }
-
-    /**
-     * Write the desired number of bytes from the given {@link InputStream} to this blob.
-     * 
-     * @param in the input stream to read from
-     * @param len the number of bytes to read
-     * 
-     * @throws IOException if an I/O occurs in the process of reading from the input or writing to this blob
-     */
-    public void writeFrom(InputStream in, long len) throws IOException {
-        if (len > buffer.length) {
-            try (OutputStream out = openOutputStream()) {
-                IOUtils.copyLarge(in, out, 0L, len);
-            }
-        } else {
-            IOUtils.readFully(in, buffer, 0, (int) len);
-            this.size = len;
         }
     }
 
@@ -208,13 +189,52 @@ public final class Blob implements Closeable {
         }
     }
 
+    /**
+     * Close this blob and release any resources associated with it.
+     * 
+     * @throws IOException if an I/O error occurs
+     */
     @Override
     public void close() throws IOException {
-        if (file != null) {
-            if (Files.deleteIfExists(file)) {
-                file = null;
+        try {
+            if (file != null) {
+                Files.deleteIfExists(file);
             }
+        } finally {
+            buffer = null;
+            file = null;
         }
+    }
+
+    /**
+     * Read the contents of this blob from the given input stream.
+     * 
+     * @param input the Input to read from
+     * 
+     * @throws IOException if an I/O occurs in the process of deserializing this blob
+     * 
+     * @see #writeTo(covalent.io.Output) 
+     */
+    public void readFrom(Input input) throws IOException {
+        long len = input.readLong();
+
+        try (OutputStream out = openOutputStream()) {
+            IOUtils.copyLarge(input, out, 0L, len);
+        }
+    }
+
+    /**
+     * Write the contents of this blob to the given output stream.
+     * <p/>
+     * This method writes a {@code long} value for the blob's size followed by its contents.
+     * 
+     * @param output the Output to write to
+     * 
+     * @throws IOException if an I/O occurs in the process of serializing this blob
+     */
+    public void writeTo(Output output) throws IOException {
+        output.writeLong(size);
+        copyTo(output);
     }
 
     /**
@@ -254,7 +274,7 @@ public final class Blob implements Closeable {
         /**
          * Default constructor.
          */
-        private BlobOutputStream() {
+        private BlobOutputStream() throws IOException {
             super(null);
             out = buffer = new BufferOutputStream();
         }
@@ -265,7 +285,8 @@ public final class Blob implements Closeable {
          * @throws IOException if the file cannot be opened or written to
          */
         private void switchToFile() throws IOException {
-            out = Files.newOutputStream(file);
+            file = Files.createTempFile(TEMPORARY_DIR, null, ".blob");
+            out = Files.newOutputStream(file, StandardOpenOption.TRUNCATE_EXISTING);
             buffer.writeTo(out);
             buffer = null;
         }
