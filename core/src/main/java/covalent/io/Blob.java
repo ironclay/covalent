@@ -1,7 +1,9 @@
 package covalent.io;
 
+import com.google.common.base.Preconditions;
+import covalent.io.serialization.Serializer;
 import java.io.ByteArrayInputStream;
-import java.io.Closeable;
+import java.io.EOFException;
 import java.io.File;
 import java.io.FileOutputStream;
 import java.io.IOException;
@@ -9,20 +11,17 @@ import java.io.InputStream;
 import java.io.OutputStream;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.nio.file.StandardOpenOption;
 import org.apache.commons.io.FileUtils;
 import org.apache.commons.io.IOUtils;
-import org.apache.commons.io.output.ProxyOutputStream;
+import org.apache.commons.lang3.ArrayUtils;
 
 /**
- * A blob is used to store a large volume of bytes. It keeps the data in memory until a threshold is exceeded.
- * <p/>
- * This class is NOT thread-safe.
+ * A blob is used to store a large volume of bytes.
  * 
  * @author Mario Ceste, Jr.
  * @since 1.0
  */
-public final class Blob implements Closeable {
+public final class Blob {
 
     /**
      * Indicates the path to the directory in which to create temporary files.
@@ -39,47 +38,69 @@ public final class Blob implements Closeable {
     public static final int BUFFER_SIZE = Integer.getInteger("covalent.io.Blob.bufferSize", 0x10000);
 
     /**
+     * Serializer for a {@link Blob}.
+     */
+    public static final Serializer<Blob> SERIALIZER = new Serializer<Blob>() {
+
+        @Override
+        public Blob read(Input input) throws IOException {
+            return Blob.create(input, input.readLong());
+        }
+
+        @Override
+        public void write(Output output, Blob value) throws IOException {
+            output.writeLong(value.length);
+            value.copyTo(output);
+        }
+
+    };
+
+    /**
      * The buffer.
      */
-    private byte[] buffer;
+    private final byte[] buffer;
 
     /**
-     * The size.
+     * The length.
      */
-    private long size;
+    private final long length;
 
     /**
-     * The temporary file.
+     * The file.
      */
-    private Path file;
+    private final Path file;
 
     /**
      * Sole constructor.
      * 
      * @param buffer the buffer
-     * @param size the initial size, typically zero
+     * @param file the temporary file
+     * @param length the total number of bytes
      */
-    private Blob(byte[] buffer, long size) {
+    Blob(byte[] buffer, Path file, long length) {
+        Preconditions.checkArgument(buffer != null ^ file != null);
+        Preconditions.checkArgument(length >= 0);
         this.buffer = buffer;
-        this.size = size;
+        this.file = file;
+        this.length = length;
     }
 
     /**
-     * Return the size of this blob in bytes.
+     * Return the length of this blob in bytes.
      * 
-     * @return the blob's size
+     * @return the length
      */
-    public long size() {
-        return size;
+    public long length() {
+        return length;
     }
 
     /**
      * Determine whether this blob does not contain any bytes.
      * 
-     * @return {@code true} if the size is zero, or {@code false} otherwise
+     * @return {@code true} if the {@link #length()} is zero, otherwise {@code false}
      */
     public boolean isEmpty() {
-        return size() == 0L;
+        return length() == 0L;
     }
 
     /**
@@ -88,48 +109,12 @@ public final class Blob implements Closeable {
      * @return the input stream
      * 
      * @throws IOException if an I/O error occurs in the process of opening the stream
-     * 
-     * @see Files#newInputStream(java.nio.file.Path, java.nio.file.OpenOption[]) 
-     * @see ByteArrayInputStream
      */
     public InputStream openInputStream() throws IOException {
-        return (size > buffer.length) ? Files.newInputStream(file) : new ByteArrayInputStream(buffer, 0, (int) size);
-    }
-
-    /**
-     * Open a new {@link OutputStream} for writing to this blob.
-     * 
-     * @return the output stream
-     * 
-     * @throws IOException if an I/O error occurs in the process of opening the stream
-     */
-    public OutputStream openOutputStream() throws IOException {
-        return new BlobOutputStream();
-    }
-
-    /**
-     * Write all of the given bytes to this blob.
-     * 
-     * @param bytes the bytes to write
-     * 
-     * @throws IOException if an I/O occurs in the process of writing to this blob
-     */
-    public void write(byte[] bytes) throws IOException {
-        try (OutputStream out = openOutputStream()) {
-            out.write(bytes);
-        }
-    }
-
-    /**
-     * Write all of the bytes from the given {@link InputStream} to this blob.
-     * 
-     * @param in the input stream to read from
-     * 
-     * @throws IOException if an I/O occurs in the process of reading from the input or writing to this blob
-     */
-    public void writeFrom(InputStream in) throws IOException {
-        try (OutputStream out = openOutputStream()) {
-            IOUtils.copyLarge(in, out);
+        if (buffer != null) {
+            return new ByteArrayInputStream(buffer, 0, (int) length);
+        } else {
+            return Files.newInputStream(file);
         }
     }
 
@@ -167,74 +152,13 @@ public final class Blob implements Closeable {
      * @throws IOException if an I/O error occurs in the process of reading from this blob or writing to the output
      */
     public void copyTo(OutputStream out) throws IOException {
-        if (size > buffer.length) {
+        if (buffer != null) {
+            out.write(buffer, 0, (int) length);
+        } else {
             try (InputStream in = openInputStream()) {
                 IOUtils.copyLarge(in, out);
             }
-        } else {
-            out.write(buffer, 0, (int) size);
         }
-    }
-
-    /**
-     * Copy the contents of this blob to another blob.
-     * 
-     * @param blob the blob to write to
-     * 
-     * @throws IOException if an I/O error occurs in the process of reading or writing bytes
-     */
-    public void copyTo(Blob blob) throws IOException {
-        try (OutputStream out = blob.openOutputStream()) {
-            copyTo(out);
-        }
-    }
-
-    /**
-     * Close this blob and release any resources associated with it.
-     * 
-     * @throws IOException if an I/O error occurs
-     */
-    @Override
-    public void close() throws IOException {
-        try {
-            if (file != null) {
-                Files.deleteIfExists(file);
-            }
-        } finally {
-            buffer = null;
-            file = null;
-        }
-    }
-
-    /**
-     * Read the contents of this blob from the given input stream.
-     * 
-     * @param input the Input to read from
-     * 
-     * @throws IOException if an I/O occurs in the process of deserializing this blob
-     * 
-     * @see #writeTo(covalent.io.Output) 
-     */
-    public void readFrom(Input input) throws IOException {
-        long len = input.readLong();
-
-        try (OutputStream out = openOutputStream()) {
-            IOUtils.copyLarge(input, out, 0L, len);
-        }
-    }
-
-    /**
-     * Write the contents of this blob to the given output stream.
-     * <p/>
-     * This method writes a {@code long} value for the blob's size followed by its contents.
-     * 
-     * @param output the Output to write to
-     * 
-     * @throws IOException if an I/O occurs in the process of serializing this blob
-     */
-    public void writeTo(Output output) throws IOException {
-        output.writeLong(size);
-        copyTo(output);
     }
 
     /**
@@ -242,112 +166,94 @@ public final class Blob implements Closeable {
      * 
      * @return the blob
      */
-    public static Blob create() {
-        byte[] buffer = new byte[BUFFER_SIZE];
-        return new Blob(buffer, 0L);
+    public static Blob empty() {
+        return new Blob(ArrayUtils.EMPTY_BYTE_ARRAY, null, 0L);
+    }
+
+    /**
+     * Create a blob by copying all of the bytes from the given {@link InputStream}.
+     * 
+     * @param in the input stream to read from
+     * 
+     * @return the blob
+     * 
+     * @throws IOException if an I/O error occurs in the process of reading from the input or writing to the blob
+     */
+    public static Blob create(InputStream in) throws IOException {
+        try (BlobOutputStream out = new BlobOutputStream(BUFFER_SIZE, TEMPORARY_DIR)) {
+            out.writeFrom(in);
+            return out.create();
+        }
+    }
+
+    /**
+     * Create a blob by copying some of the bytes from the given {@link InputStream}.
+     * 
+     * @param in the input stream to read from
+     * @param len the number of bytes to read
+     * 
+     * @return the blob
+     * 
+     * @throws IOException if an I/O error occurs in the process of reading from the input or writing to the blob
+     * @throws EOFException if the input stream reaches the end before reading all of the bytes
+     */
+    public static Blob create(InputStream in, long len) throws IOException, EOFException {
+        try (BlobOutputStream out = new BlobOutputStream(BUFFER_SIZE, TEMPORARY_DIR)) {
+            if (len == out.writeFrom(in)) {
+                return out.create();
+            } else {
+                throw new EOFException();
+            }
+        }
     }
 
     /**
      * Create a blob that wraps the given bytes.
      * <p/>
-     * The new blob will be backed by the given byte array; that is, modifications to the blob will cause the array to
+     * The new blob will be backed by the given byte array; that is, modifications to the array will cause the blob to
      * be modified and vice versa. The new blob's size will be {@code b.length}.
      * 
      * @param b the blob's contents
      * 
      * @return the blob
      */
-    public static Blob create(byte[] b) {
-        return new Blob(b, b.length);
+    public static Blob wrap(byte[] b) {
+        return new Blob(b, null, b.length);
     }
 
     /**
-     * An output stream for writing bytes to this blob.
+     * Create a blob that wraps the given file.
+     * <p/>
+     * The new blob will be backed by the given file; that is, modifications to the file will cause the blob to be 
+     * modified and vice versa. The new blob's size will be the {@code Files.size(file)}.
+     * 
+     * @param file the file
+     * 
+     * @return the blob
+     * 
+     * @throws IOException if an I/O error occurs
+     * 
+     * @see Files#size(java.nio.file.Path) 
      */
-    private final class BlobOutputStream extends ProxyOutputStream {
-
-        /**
-         * The buffer.
-         */
-        private BufferOutputStream buffer;
-
-        /**
-         * Default constructor.
-         */
-        private BlobOutputStream() throws IOException {
-            super(null);
-            out = buffer = new BufferOutputStream();
-        }
-
-        /**
-         * Switch to writing to the temporary file.
-         * 
-         * @throws IOException if the file cannot be opened or written to
-         */
-        private void switchToFile() throws IOException {
-            file = Files.createTempFile(TEMPORARY_DIR, null, ".blob");
-            out = Files.newOutputStream(file, StandardOpenOption.TRUNCATE_EXISTING);
-            buffer.writeTo(out);
-            buffer = null;
-        }
-
-        @Override
-        protected void beforeWrite(int n) throws IOException {
-            if (buffer != null && buffer.canWrite(n) != true) {
-                switchToFile();
-            }
-        }
-
-        @Override
-        protected void afterWrite(int n) throws IOException {
-            size += n;
-        }
-
+    public static Blob wrap(Path file) throws IOException {
+        return new Blob(null, file, Files.size(file));
     }
 
     /**
-     * An output stream that writes to its buffer.
+     * Create a copy of this blob.
+     * 
+     * @return the blob
+     * 
+     * @throws IOException if an I/O error occurs
      */
-    private final class BufferOutputStream extends OutputStream {
-
-        /**
-         * The offset.
-         */
-        private int offset = 0;
-
-        @Override
-        public void write(int b) throws IOException {
-            buffer[offset++] = (byte) b;
+    public Blob copy() throws IOException {
+        if (buffer != null) {
+            byte[] b = new byte[(int) length];
+            System.arraycopy(buffer, 0, b, 0, b.length);
+            return new Blob(b, null, b.length);
+        } else {
+            return create(openInputStream(), length);
         }
-
-        @Override
-        public void write(byte[] b, int off, int len) throws IOException {
-            System.arraycopy(b, off, buffer, offset, len);
-            offset += len;
-        }
-
-        /**
-         * Write the entire contents of this byte stream to the given output stream.
-         * 
-         * @param out the output stream to write to
-         * 
-         * @throws IOException if an I/O error occurs in the process of writing to the output
-         */
-        public void writeTo(OutputStream out) throws IOException {
-            out.write(buffer, 0, offset);
-        }
-
-        /**
-         * Determine whether the buffer can hold the given number of additional bytes.
-         * 
-         * @param n the number of bytes to be written
-         * 
-         * @return {@code true} if the buffer can hold the bytes
-         */
-        public boolean canWrite(int n) {
-            return (offset + n) < buffer.length;
-        }
-
     }
 
 }

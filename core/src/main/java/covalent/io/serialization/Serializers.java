@@ -228,39 +228,11 @@ public final class Serializers {
     /**
      * Serializer for a {@link Blob}.
      */
-    public static final Serializer<Blob> BLOB = new Serializer<Blob>() {
-
-        @Override
-        public Blob read(Input input) throws IOException {
-            Blob blob = Blob.create();
-            blob.readFrom(input);
-            return blob;
-        }
-
-        @Override
-        public void write(Output output, Blob value) throws IOException {
-            value.writeTo(output);
-        }
-
-    };
+    public static final Serializer<Blob> BLOB = Blob.SERIALIZER;
 
     /**
      * Serializer for a {@link Clob}.
      */
-    public static final Serializer<Clob> CLOB = new Serializer<Clob>() {
-
-        @Override
-        public Clob read(Input input) throws IOException {
-            Clob clob = Clob.create();
-            clob.readFrom(input);
-            return clob;
-        }
-
-        @Override
-        public void write(Output output, Clob value) throws IOException {
-            value.writeTo(output);
-        }
-
-    };
+    public static final Serializer<Clob> CLOB = Clob.SERIALIZER;
 
 }
