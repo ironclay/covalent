@@ -28,33 +28,6 @@ public final class Clob {
     public static final Charset DEFAULT_CHARSET = StandardCharsets.UTF_8;
 
     /**
-     * Serializer for a {@link Clob}.
-     */
-    public static final Serializer<Clob> SERIALIZER = new Serializer<Clob>() {
-
-        @Override
-        public Clob read(Input input) throws IOException {
-            long length = input.readLong();
-
-            if (length != 0) {
-                return new Clob(Blob.SERIALIZER.read(input), length);
-            } else {
-                return empty();
-            }
-        }
-
-        @Override
-        public void write(Output output, Clob value) throws IOException {
-            output.writeLong(value.length);
-
-            if (value.length() != 0) {
-                Blob.SERIALIZER.write(output, value.blob);
-            }
-        }
-
-    };
-
-    /**
      * The blob.
      */
     private final Blob blob;
@@ -152,7 +125,7 @@ public final class Clob {
                 length = IOUtils.copyLarge(in, output);
             }
 
-            return new Clob(out.create(), length);
+            return new Clob(new Blob(out.buffer, out.file, out.count), length);
         }
     }
 
@@ -165,6 +138,47 @@ public final class Clob {
      */
     public Clob copy() throws IOException {
         return new Clob(blob.copy(), length);
+    }
+
+    /**
+     * Return a {@link Serializer} that converts a clob to and from a stream of bytes.
+     * 
+     * @return the serializer
+     */
+    public static Serializer<Clob> serializer() {
+        return ClobSerializer.instance;
+    }
+
+    /**
+     * Serializer implementation for a clob.
+     */
+    private static class ClobSerializer implements Serializer<Clob> {
+
+        /**
+         * The singleton instance.
+         */
+        private static final ClobSerializer instance = new ClobSerializer();
+
+        @Override
+        public Clob read(Input input) throws IOException {
+            long length = input.readLong();
+
+            if (length != 0) {
+                return new Clob(Blob.serializer().read(input), length);
+            } else {
+                return empty();
+            }
+        }
+
+        @Override
+        public void write(Output output, Clob value) throws IOException {
+            output.writeLong(value.length);
+
+            if (value.length != 0) {
+                Blob.serializer().write(output, value.blob);
+            }
+        }
+
     }
 
 }

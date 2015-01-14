@@ -38,24 +38,6 @@ public final class Blob {
     public static final int BUFFER_SIZE = Integer.getInteger("covalent.io.Blob.bufferSize", 0x10000);
 
     /**
-     * Serializer for a {@link Blob}.
-     */
-    public static final Serializer<Blob> SERIALIZER = new Serializer<Blob>() {
-
-        @Override
-        public Blob read(Input input) throws IOException {
-            return Blob.create(input, input.readLong());
-        }
-
-        @Override
-        public void write(Output output, Blob value) throws IOException {
-            output.writeLong(value.length);
-            value.copyTo(output);
-        }
-
-    };
-
-    /**
      * The buffer.
      */
     private final byte[] buffer;
@@ -181,8 +163,8 @@ public final class Blob {
      */
     public static Blob create(InputStream in) throws IOException {
         try (BlobOutputStream out = new BlobOutputStream(BUFFER_SIZE, TEMPORARY_DIR)) {
-            out.writeFrom(in);
-            return out.create();
+            long length = IOUtils.copyLarge(in, out);
+            return new Blob(out.buffer, out.file, length);
         }
     }
 
@@ -199,8 +181,8 @@ public final class Blob {
      */
     public static Blob create(InputStream in, long len) throws IOException, EOFException {
         try (BlobOutputStream out = new BlobOutputStream(BUFFER_SIZE, TEMPORARY_DIR)) {
-            if (len == out.writeFrom(in)) {
-                return out.create();
+            if (len == IOUtils.copyLarge(in, out, 0, len)) {
+                return new Blob(out.buffer, out.file, out.count);
             } else {
                 throw new EOFException();
             }
@@ -254,6 +236,38 @@ public final class Blob {
         } else {
             return create(openInputStream(), length);
         }
+    }
+
+    /**
+     * Return a {@link Serializer} that converts a blob to and from a stream of bytes.
+     * 
+     * @return the serializer
+     */
+    public static Serializer<Blob> serializer() {
+        return BlobSerializer.instance;
+    }
+
+    /**
+     * Serializer implementation for a blob.
+     */
+    private static class BlobSerializer implements Serializer<Blob> {
+
+        /**
+         * The singleton instance.
+         */
+        private static final BlobSerializer instance = new BlobSerializer();
+
+        @Override
+        public Blob read(Input input) throws IOException {
+            return Blob.create(input, input.readLong());
+        }
+
+        @Override
+        public void write(Output output, Blob value) throws IOException {
+            output.writeLong(value.length);
+            value.copyTo(output);
+        }
+
     }
 
 }

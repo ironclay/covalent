@@ -2,12 +2,10 @@ package covalent.io;
 
 import java.io.Closeable;
 import java.io.IOException;
-import java.io.InputStream;
 import java.io.OutputStream;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardOpenOption;
-import org.apache.commons.io.IOUtils;
 import org.apache.commons.io.output.ProxyOutputStream;
 
 /**
@@ -21,17 +19,12 @@ final class BlobOutputStream extends ProxyOutputStream implements Closeable {
     /**
      * The buffer.
      */
-    private byte[] buffer;
-
-    /**
-     * The buffer's offset.
-     */
-    private int bufferOffset = 0;
+    protected byte[] buffer;
 
     /**
      * The byte count.
      */
-    private long count = 0;
+    protected long count = 0;
 
     /**
      * The directory.
@@ -41,7 +34,7 @@ final class BlobOutputStream extends ProxyOutputStream implements Closeable {
     /**
      * The file.
      */
-    private Path file;
+    protected Path file;
 
     /**
      * Sole constructor.
@@ -52,22 +45,8 @@ final class BlobOutputStream extends ProxyOutputStream implements Closeable {
     protected BlobOutputStream(int bufferSize, Path directory) {
         super(null);
         this.buffer = new byte[bufferSize];
-        this.bufferOffset = 0;
         this.directory = directory;
-        this.out = new BufferOutputStream();
-    }
-
-    /**
-     * Write all the bytes from the given {@link InputStream}.
-     * 
-     * @param in the input stream to read from
-     * 
-     * @return the number of bytes written
-     * 
-     * @throws IOException if an I/O occurs in the process of reading from input or writing to this output
-     */
-    protected long writeFrom(InputStream in) throws IOException {
-        return IOUtils.copyLarge(in, this);
+        this.out = new ByteArrayOutputStream();
     }
 
     /**
@@ -78,13 +57,13 @@ final class BlobOutputStream extends ProxyOutputStream implements Closeable {
     private void switchToFile() throws IOException {
         file = Files.createTempFile(directory, "covalent", ".blob");
         out = Files.newOutputStream(file, StandardOpenOption.TRUNCATE_EXISTING);
-        out.write(buffer, 0, bufferOffset);
+        out.write(buffer, 0, (int) count);
         buffer = null;
     }
 
     @Override
     protected void beforeWrite(int n) throws IOException {
-        if (buffer != null && (bufferOffset + n) > buffer.length) {
+        if (buffer != null && (count + n) > buffer.length) {
             switchToFile();
         }
     }
@@ -113,40 +92,18 @@ final class BlobOutputStream extends ProxyOutputStream implements Closeable {
     }
 
     /**
-     * Create a blob using the data that was written to this stream.
-     * <p/>
-     * This method will flush and close the underlying output stream if its writing to a file.
-     * 
-     * @return the blob
+     * An output stream that writes to the byte array.
      */
-    protected Blob create() throws IOException {
-        if (buffer != null) {
-            return new Blob(buffer, null, bufferOffset);
-        }
-
-        try {
-            out.flush();
-        } finally {
-            IOUtils.closeQuietly(out);
-        }
-
-        return new Blob(null, file, count);
-    }
-
-    /**
-     * An output stream that writes to its buffer.
-     */
-    private final class BufferOutputStream extends OutputStream {
+    private final class ByteArrayOutputStream extends OutputStream {
 
         @Override
         public void write(int b) throws IOException {
-            buffer[bufferOffset++] = (byte) b;
+            buffer[(int) count++] = (byte) b;
         }
 
         @Override
         public void write(byte[] b, int off, int len) throws IOException {
-            System.arraycopy(b, off, buffer, bufferOffset, len);
-            bufferOffset += len;
+            System.arraycopy(b, off, buffer, (int) count, len);
         }
 
     }

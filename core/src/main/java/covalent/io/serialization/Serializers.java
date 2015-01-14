@@ -228,11 +228,11 @@ public final class Serializers {
     /**
      * Serializer for a {@link Blob}.
      */
-    public static final Serializer<Blob> BLOB = Blob.SERIALIZER;
+    public static final Serializer<Blob> BLOB = Blob.serializer();
 
     /**
      * Serializer for a {@link Clob}.
      */
-    public static final Serializer<Clob> CLOB = Clob.SERIALIZER;
+    public static final Serializer<Clob> CLOB = Clob.serializer();
 
 }
