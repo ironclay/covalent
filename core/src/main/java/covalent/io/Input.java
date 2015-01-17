@@ -1,8 +1,13 @@
 package covalent.io;
 
 import java.io.DataInput;
+import java.io.EOFException;
+import java.io.File;
+import java.io.FileOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
+import java.io.OutputStream;
+import org.apache.commons.io.IOUtils;
 
 /**
  * Class for reading Java primitive types from a stream of bytes.
@@ -18,11 +23,16 @@ public final class Input extends InputStream implements DataInput {
     private final DataInput in;
 
     /**
+     * The buffer.
+     */
+    private byte[] buffer = new byte[0x1000];
+
+    /**
      * Sole constructor.
      * 
      * @param in the underlying input stream
      */
-    public Input(DataInput in) {
+    private Input(DataInput in) {
         this.in = in;
     }
 
