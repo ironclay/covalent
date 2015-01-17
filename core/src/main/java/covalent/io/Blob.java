@@ -50,14 +50,15 @@ public final class Blob {
             if (length > blob.array.length) {
                 blob.switchToFile();
 
+                // copy all of the bytes to the file.
                 try (OutputStream out = blob.openOutputStream(false)) {
                     if (IOUtils.copyLarge(input, out, 0, length, blob.array) != length) {
                         throw new EOFException();
                     }
                 }
             } else {
-                input.readFully(blob.array, 0, (int) length);
-                blob.length = length;
+                // read the bytes into its array.
+                input.readFully(blob.array, 0, (int) (blob.length = length));
             }
 
             return blob;
@@ -83,7 +84,7 @@ public final class Blob {
     /**
      * The byte array.
      */
-    private final byte[] array;
+    private byte[] array;
 
     /**
      * The length.
@@ -242,8 +243,12 @@ public final class Blob {
     public Blob copy() throws IOException {
         Blob blob = create();
 
-        try (InputStream in = openInputStream()) {
-            blob.writeFrom(in);
+        if (file != null) {
+            try (InputStream in = openInputStream()) {
+                blob.writeFrom(in);
+            }
+        } else {
+            System.arraycopy(array, 0, blob.array, 0, (int) (blob.length = length));
         }
 
         return blob;
@@ -276,7 +281,9 @@ public final class Blob {
     }
 
     /**
-     * An output stream that starts writing to this blob's array before switching to a file once its full.
+     * An output stream for writing to this blob. If the underlying output stream is {@code null} then it will try to
+     * write to this blob's array if there is space remaining otherwise it will switch to a file. Any bytes that were
+     * already written to the array will be copied to the file.
      */
     private final class BlobOutputStream extends FilterOutputStream {
 
@@ -337,7 +344,10 @@ public final class Blob {
         protected void beforeWrite(int n) throws IOException {
             if (out == null && (length + n) > array.length) {
                 out = Files.newOutputStream(file, StandardOpenOption.TRUNCATE_EXISTING);
-                out.write(array, 0, (int) length);
+
+                if (length != 0L) {
+                    out.write(array, 0, (int) length);
+                }
             }
         }
 
