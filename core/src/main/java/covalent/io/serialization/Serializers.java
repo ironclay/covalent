@@ -7,11 +7,13 @@ import covalent.io.Output;
 import java.io.DataInput;
 import java.io.DataOutput;
 import java.io.IOException;
-import java.io.InputStreamReader;
-import java.io.OutputStreamWriter;
+import java.net.URI;
+import java.net.URISyntaxException;
 import java.net.URL;
-import java.nio.charset.Charset;
+import java.nio.file.Path;
+import java.nio.file.Paths;
 import java.util.Date;
+import org.apache.commons.lang3.StringUtils;
 
 /**
  * Factory for out-of-the-box {@link Serializer} implementations.
@@ -221,6 +223,44 @@ public final class Serializers {
         public void write(Output output, URL value) throws IOException {
             String spec = value.toString();
             output.writeUTF(spec);
+        }
+
+    };
+
+    /**
+     * Serializer for a {@link Path}.
+     */
+    public static final Serializer<Path> PATH = new Serializer<Path>() {
+
+        @Override
+        public Path read(Input input) throws IOException {
+            int count = input.readInt() + (input.readBoolean() ? 1 : 0);
+            String first = input.readUTF();
+            String[] more = new String[count - 1];
+
+            for (int i = 0; i < more.length; i++) {
+                more[i] = input.readUTF();
+            }
+
+            return Paths.get(first, more);
+        }
+
+        @Override
+        public void write(Output output, Path value) throws IOException {
+            output.writeInt(value.getNameCount());
+
+            if (value.getRoot() != null) {
+                output.writeBoolean(true);
+                output.writeUTF(value.getRoot().toString());
+            } else {
+                output.writeBoolean(false);
+            }
+
+            // write the name elements.
+            for (int i = 0, count = value.getNameCount(); i < count; i++) {
+                String name = value.getName(i).toString();
+                output.writeUTF(name);
+            }
         }
 
     };

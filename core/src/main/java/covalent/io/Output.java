@@ -1,11 +1,9 @@
 package covalent.io;
 
+import com.google.common.base.Preconditions;
 import java.io.DataOutput;
-import java.io.EOFException;
 import java.io.IOException;
-import java.io.InputStream;
 import java.io.OutputStream;
-import org.apache.commons.io.IOUtils;
 
 /**
  * Class for writing Java primitive types to a stream of bytes.
@@ -21,17 +19,21 @@ public final class Output extends OutputStream implements DataOutput {
     private final DataOutput out;
 
     /**
-     * The buffer.
+     * The byte array to use for copying bytes.
      */
-    private byte[] buffer = new byte[0x1000];
+    public final byte[] buffer;
 
     /**
      * Sole constructor.
      * 
      * @param out the underlying output stream
+     * @param bufferSize the buffer size
      */
-    public Output(DataOutput out) {
+    public Output(DataOutput out, int bufferSize) {
+        Preconditions.checkNotNull(out);
+        Preconditions.checkArgument(bufferSize > 0);
         this.out = out;
+        this.buffer = new byte[bufferSize];
     }
     
     @Override

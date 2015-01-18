@@ -1,13 +1,9 @@
 package covalent.io;
 
+import com.google.common.base.Preconditions;
 import java.io.DataInput;
-import java.io.EOFException;
-import java.io.File;
-import java.io.FileOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
-import java.io.OutputStream;
-import org.apache.commons.io.IOUtils;
 
 /**
  * Class for reading Java primitive types from a stream of bytes.
@@ -23,17 +19,21 @@ public final class Input extends InputStream implements DataInput {
     private final DataInput in;
 
     /**
-     * The buffer.
+     * The byte array to use for copying bytes.
      */
-    private byte[] buffer = new byte[0x1000];
+    public final byte[] buffer;
 
     /**
      * Sole constructor.
      * 
      * @param in the underlying input stream
+     * @param bufferSize the buffer size
      */
-    private Input(DataInput in) {
+    public Input(DataInput in, int bufferSize) {
+        Preconditions.checkNotNull(in);
+        Preconditions.checkArgument(bufferSize > 0);
         this.in = in;
+        this.buffer = new byte[bufferSize];
     }
 
     @Override

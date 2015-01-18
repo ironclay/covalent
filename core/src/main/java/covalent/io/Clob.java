@@ -8,7 +8,6 @@ import java.io.Reader;
 import java.io.Writer;
 import java.nio.charset.Charset;
 import java.nio.charset.StandardCharsets;
-import org.apache.commons.io.IOUtils;
 import org.apache.commons.io.output.ProxyWriter;
 
 /**
@@ -34,13 +33,21 @@ public final class Clob {
         @Override
         public Clob read(Input input) throws IOException {
             long length = input.readLong();
-            return new Clob(Blob.serializer().read(input), length);
+
+            if (length != 0L) {
+                return new Clob(Blob.serializer().read(input), length);
+            } else {
+                return new Clob(Blob.empty(), length);
+            }
         }
 
         @Override
         public void write(Output output, Clob value) throws IOException {
             output.writeLong(value.length);
-            Blob.serializer().write(output, value.blob);
+
+            if (value.length != 0L) {
+                Blob.serializer().write(output, value.blob);
+            }
         }
 
     };
@@ -89,6 +96,17 @@ public final class Clob {
     /**
      * Open a new {@link Writer} for writing to this clob.
      * 
+     * @return the writer
+     * 
+     * @throws IOException if an I/O error occurs in the process of opening the writer
+     */
+    public Writer openWriter() throws IOException {
+        return openWriter(false);
+    }
+
+    /**
+     * Open a new {@link Writer} for writing to this clob.
+     * 
      * @param append if {@code true}, then characters will be written to the end of the clob
      * 
      * @return the writer
@@ -113,19 +131,6 @@ public final class Clob {
     }
 
     /**
-     * Copy the text from this clob to the given {@link Writer}.
-     * 
-     * @param out the character stream to write to
-     * 
-     * @throws IOException if an I/O occurs in the process of reading from this clob or writing to the output
-     */
-    public void copyTo(Writer out) throws IOException {
-        try (Reader in = openReader()) {
-            IOUtils.copyLarge(in, out);
-        }
-    }
-
-    /**
      * Create a copy of this clob.
      * 
      * @return the clob
@@ -137,11 +142,24 @@ public final class Clob {
     }
 
     /**
+     * Create a clob that is backed by an empty blob.
+     * 
+     * @return the clob
+     * 
+     * @see Blob#empty() 
+     */
+    public static Clob empty() {
+        return new Clob(Blob.empty(), 0L);
+    }
+
+    /**
      * Create an empty clob.
      * 
      * @return the clob
+     * 
+     * @see Blob#create() 
      */
-    public Clob create() {
+    public static Clob create() {
         return new Clob(Blob.create(), 0L);
     }
 
