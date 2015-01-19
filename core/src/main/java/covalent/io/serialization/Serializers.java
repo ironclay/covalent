@@ -4,16 +4,12 @@ import covalent.io.Blob;
 import covalent.io.Clob;
 import covalent.io.Input;
 import covalent.io.Output;
-import java.io.DataInput;
-import java.io.DataOutput;
 import java.io.IOException;
-import java.net.URI;
-import java.net.URISyntaxException;
 import java.net.URL;
+import java.nio.charset.StandardCharsets;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.Date;
-import org.apache.commons.lang3.StringUtils;
 
 /**
  * Factory for out-of-the-box {@link Serializer} implementations.
@@ -143,21 +139,21 @@ public final class Serializers {
     };
 
     /**
-     * Serializer for a sequence of Unicode characters encoded using a modified UTF-8 format.
+     * Serializer for a sequence of Unicode characters encoded using {@link StandardCharsets#UTF_8 UTF-8}.
      * 
-     * @see java.io.DataInput#readUTF() 
-     * @see java.io.DataOutput#writeUTF(java.lang.String) 
+     * @see Input#readString() 
+     * @see Output#writeString(java.lang.CharSequence) 
      */
     public static final Serializer<String> UTF8 = new Serializer<String>() {
 
         @Override
         public String read(Input input) throws IOException {
-            return input.readUTF();
+            return input.readString();
         }
 
         @Override
         public void write(Output output, String value) throws IOException {
-            output.writeUTF(value);
+            output.writeString(value);
         }
 
     };
@@ -215,14 +211,14 @@ public final class Serializers {
 
         @Override
         public URL read(Input input) throws IOException {
-            String spec = input.readUTF();
+            String spec = input.readString();
             return new URL(spec);
         }
 
         @Override
         public void write(Output output, URL value) throws IOException {
             String spec = value.toString();
-            output.writeUTF(spec);
+            output.writeString(spec);
         }
 
     };
@@ -235,11 +231,11 @@ public final class Serializers {
         @Override
         public Path read(Input input) throws IOException {
             int count = input.readInt() + (input.readBoolean() ? 1 : 0);
-            String first = input.readUTF();
+            String first = input.readString();
             String[] more = new String[count - 1];
 
             for (int i = 0; i < more.length; i++) {
-                more[i] = input.readUTF();
+                more[i] = input.readString();
             }
 
             return Paths.get(first, more);
@@ -251,7 +247,7 @@ public final class Serializers {
 
             if (value.getRoot() != null) {
                 output.writeBoolean(true);
-                output.writeUTF(value.getRoot().toString());
+                output.writeString(value.getRoot().toString());
             } else {
                 output.writeBoolean(false);
             }
@@ -259,7 +255,7 @@ public final class Serializers {
             // write the name elements.
             for (int i = 0, count = value.getNameCount(); i < count; i++) {
                 String name = value.getName(i).toString();
-                output.writeUTF(name);
+                output.writeString(name);
             }
         }
 

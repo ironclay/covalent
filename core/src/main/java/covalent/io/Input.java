@@ -3,7 +3,11 @@ package covalent.io;
 import com.google.common.base.Preconditions;
 import java.io.DataInput;
 import java.io.IOException;
-import java.io.InputStream;
+import java.nio.ByteBuffer;
+import java.nio.CharBuffer;
+import java.nio.charset.CharsetDecoder;
+import java.nio.charset.CoderResult;
+import java.nio.charset.StandardCharsets;
 
 /**
  * Class for reading Java primitive types from a stream of bytes.
@@ -11,7 +15,7 @@ import java.io.InputStream;
  * @author Mario Ceste, Jr.
  * @since 1.0
  */
-public final class Input extends InputStream implements DataInput {
+public final class Input {
 
     /**
      * The input stream.
@@ -22,6 +26,11 @@ public final class Input extends InputStream implements DataInput {
      * The byte array to use for copying bytes.
      */
     public final byte[] buffer;
+
+    /**
+     * The UTF-8 decoder.
+     */
+    private final CharsetDecoder decoder = StandardCharsets.UTF_8.newDecoder();
 
     /**
      * Sole constructor.
@@ -36,85 +45,188 @@ public final class Input extends InputStream implements DataInput {
         this.buffer = new byte[bufferSize];
     }
 
-    @Override
-    public int read() throws IOException {
-        return in.readByte() & 0xFF;
-    }
-
-    @Override
+    /**
+     * Read a {@code boolean} from the input stream.
+     * 
+     * @return a boolean flag
+     * 
+     * @throws IOException 
+     */
     public boolean readBoolean() throws IOException {
         return in.readBoolean();
     }
 
-    @Override
+    /**
+     * Read a {@code byte} from the input stream.
+     * 
+     * @return an 8-bit signed integer
+     * 
+     * @throws IOException if an I/O error occurs
+     */
     public byte readByte() throws IOException {
         return in.readByte();
     }
 
-    @Override
+    /**
+     * Read a {@code char} from the input stream.
+     * 
+     * @return a 16-bit Unicode character
+     * 
+     * @throws IOException if an I/O error occurs
+     */
     public char readChar() throws IOException {
         return in.readChar();
     }
 
-    @Override
+    /**
+     * Read a {@code double} from the input stream.
+     * 
+     * @return a 64-bit floating point
+     * 
+     * @throws IOException if an I/O error occurs
+     */
     public double readDouble() throws IOException {
         return in.readDouble();
     }
 
-    @Override
+    /**
+     * Read a {@code float} from the input stream.
+     * 
+     * @return a 32-bit floating point
+     * 
+     * @throws IOException if an I/O error occurs
+     */
     public float readFloat() throws IOException {
         return in.readFloat();
     }
 
-    @Override
+    /**
+     * Read bytes from the input stream.
+     * 
+     * @param b the buffer into which the data is read
+     * 
+     * @throws IOException if an I/O error occurs
+     */
     public void readFully(byte[] b) throws IOException {
         in.readFully(b);
     }
 
-    @Override
+    /**
+     * Read the given number of bytes from the input stream.
+     * 
+     * @param b the buffer into which the data is read
+     * @param off the offset into the data
+     * @param len the number of bytes to be read
+     * 
+     * @throws IOException if an I/O error occurs
+     */
     public void readFully(byte[] b, int off, int len) throws IOException {
         in.readFully(b, off, len);
     }
 
-    @Override
+    /**
+     * Read an {@code int} from the input stream.
+     * 
+     * @return a 32-bit signed integer
+     * 
+     * @throws IOException if an I/O error occurs
+     */
     public int readInt() throws IOException {
         return in.readInt();
     }
 
-    @Override
-    @Deprecated
-    public String readLine() throws IOException {
-        return in.readLine();
-    }
-
-    @Override
+    /**
+     * Read a {@code long} from the input stream.
+     * 
+     * @return a 64-bit signed integer
+     * 
+     * @throws IOException if an I/O error occurs
+     */
     public long readLong() throws IOException {
         return in.readLong();
     }
 
-    @Override
+    /**
+     * Read a {@code short} from the input stream.
+     * 
+     * @return a 16-bit signed integer
+     * 
+     * @throws IOException if an I/O error occurs
+     */
     public short readShort() throws IOException {
         return in.readShort();
     }
 
-    @Override
-    public String readUTF() throws IOException {
-        return in.readUTF();
-    }
-
-    @Override
+    /**
+     * Read an unsigned {@code byte} from the input stream.
+     * 
+     * @return an 8-bit unsigned integer
+     * 
+     * @throws IOException if an I/O error occurs
+     */
     public int readUnsignedByte() throws IOException {
         return in.readUnsignedByte();
     }
 
-    @Override
+    /**
+     * Read an unsigned {@code short} from the input stream.
+     * 
+     * @return a 16-bit unsigned integer
+     * 
+     * @throws IOException if an I/O error occurs
+     */
     public int readUnsignedShort() throws IOException {
         return in.readUnsignedShort();
     }
 
-    @Override
+    /**
+     * Skip over the given number of bytes from the input stream.
+     * 
+     * @param n the number of bytes to skip
+     * 
+     * @return the number of bytes skipped
+     * 
+     * @throws IOException if an I/O error occurs
+     */
     public int skipBytes(int n) throws IOException {
         return in.skipBytes(n);
+    }
+
+    /**
+     * Read a {@link String} from the input stream.
+     * 
+     * @return a String of characters
+     * 
+     * @throws IOException if an I/O error occurs
+     */
+    public String readString() throws IOException {
+        return readUTF8();
+    }
+
+    /**
+     * Read some of the bytes from the input stream and decode them into characters using the UTF-8 character encoding.
+     * 
+     * @param in the input byte buffer
+     * 
+     * @return a String of characters
+     * 
+     * @throws IOException if an I/O error occurs
+     */
+    private String readUTF8() throws IOException {
+        int length = readInt(); // character count
+        long remaining = readLong(); // remaining byte count
+        
+        // buffers
+        CharBuffer cb = CharBuffer.allocate(length);
+        ByteBuffer bb = ByteBuffer.wrap(buffer);
+
+        for (decoder.reset(); remaining > 0; remaining -= bb.position(), bb.flip()) {
+            int len = (int) Math.min(remaining, bb.remaining());
+            readFully(bb.array(), bb.arrayOffset() + bb.position(), len);
+            decoder.decode(bb, cb, len == remaining);
+        }
+
+        return cb.flip().toString();
     }
 
 }

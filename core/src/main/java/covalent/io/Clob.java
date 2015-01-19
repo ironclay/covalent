@@ -1,5 +1,6 @@
 package covalent.io;
 
+import com.google.common.base.Preconditions;
 import covalent.io.serialization.Serializer;
 import java.io.IOException;
 import java.io.InputStreamReader;
@@ -33,12 +34,8 @@ public final class Clob {
         @Override
         public Clob read(Input input) throws IOException {
             long length = input.readLong();
-
-            if (length != 0L) {
-                return new Clob(Blob.serializer().read(input), length);
-            } else {
-                return new Clob(Blob.empty(), length);
-            }
+            Blob blob = (length != 0L) ? Blob.serializer().read(input) : Blob.empty();
+            return new Clob(blob, length);
         }
 
         @Override
@@ -69,6 +66,7 @@ public final class Clob {
      * @param length the number of characters
      */
     private Clob(Blob blob, long length) {
+        Preconditions.checkArgument(length >= 0L);
         this.blob = blob;
         this.length = length;
     }
@@ -113,21 +111,14 @@ public final class Clob {
      * 
      * @throws IOException if an I/O error occurs in the process of opening the writer
      */
-    public Writer openWriter(final boolean append) throws IOException {
+    public Writer openWriter(boolean append) throws IOException {
         Writer out = new OutputStreamWriter(blob.openOutputStream(append), DEFAULT_CHARSET);
 
         if (append != true) {
             length = 0L;
         }
 
-        return new ProxyWriter(out) {
-
-            @Override
-            protected void afterWrite(int n) throws IOException {
-                length += n;
-            }
-
-        };
+        return new ClobWriter(out);
     }
 
     /**
@@ -170,6 +161,27 @@ public final class Clob {
      */
     public static Serializer<Clob> serializer() {
         return SERIALIZER;
+    }
+
+    /**
+     * A character-output stream for writing text to this clob.
+     */
+    private final class ClobWriter extends ProxyWriter {
+
+        /**
+         * Sole constructor.
+         * 
+         * @param out the Writer to delegate to
+         */
+        private ClobWriter(Writer out) {
+            super(out);
+        }
+
+        @Override
+        protected void afterWrite(int n) throws IOException {
+            length += n;
+        }
+
     }
 
 }
