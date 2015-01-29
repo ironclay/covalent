@@ -3,11 +3,6 @@ package covalent.io;
 import com.google.common.base.Preconditions;
 import java.io.DataOutput;
 import java.io.IOException;
-import java.nio.ByteBuffer;
-import java.nio.CharBuffer;
-import java.nio.charset.CharsetEncoder;
-import java.nio.charset.CoderResult;
-import java.nio.charset.StandardCharsets;
 
 /**
  * Class for writing Java primitive types to a stream of bytes.
@@ -26,11 +21,6 @@ public final class Output {
      * The byte array to use for copying bytes.
      */
     public final byte[] buffer;
-
-    /**
-     * The UTF-8 encoder.
-     */
-    private final CharsetEncoder encoder = StandardCharsets.UTF_8.newEncoder();
 
     /**
      * Sole constructor.
@@ -169,68 +159,30 @@ public final class Output {
     }
 
     /**
-     * Write all of the characters to the output stream.
+     * Write all of the characters to the output stream using a modified UTF-8 format.
      * 
-     * @param csq the text to be written
-     * 
-     * @throws IOException if an I/O error occurs
-     */
-    public void writeString(CharSequence csq) throws IOException {
-        writeString(csq, 0, csq.length());
-    }
-
-    /**
-     * Write some of the characters to the output stream.
-     * 
-     * @param csq the text to be written
-     * @param start the index of the first character
-     * @param end the index of the character following the last character
+     * @param csq the character sequence to be written
      * 
      * @throws IOException if an I/O error occurs
      */
-    public void writeString(CharSequence csq, int start, int end) throws IOException {
-        Preconditions.checkPositionIndexes(start, end, csq.length());
-        writeUTF8(csq, start, end);
-    }
-
-    /**
-     * Encode all of the characters using the UTF-8 character encoding and write the bytes to the output stream. 
-     * 
-     * @param in the input character buffer
-     * @param out the output byte buffer
-     * 
-     * @throws IOException if an I/O error occurs
-     */
-    private void writeUTF8(CharSequence csq, int start, int end) throws IOException {
-        long length = 0;
-
-        // count the total number of bytes.
-        for (int i = start, ch; i < end; i++) {
-            ch = csq.charAt(i);
-
-            if (ch >= 0x0000 && ch <= 0x007F) {
-                length += 1;
-            } else if (ch >= 0x0080 && ch <= 0x07FF) {
-                length += 2;
-            } else if (ch >= 0x0800 && ch <= 0xFFFF) {
-                length += 3;
-            } else {
-                length += 4;
-            }
-        }
-
-        writeInt(end - start);
-        writeLong(length);
+    public void writeUTF(CharSequence csq) throws IOException {
+        int len = csq.length(); // # of characters
+        writeInt(len);
         
-        // buffers
-        CharBuffer cb = CharBuffer.wrap(csq, start, end);
-        ByteBuffer bb = ByteBuffer.wrap(buffer);
+        for (int off = 0; off < len; off++) {
+            char c = csq.charAt(off);
 
-        for (encoder.reset(); cb.hasRemaining();) {
-            if (encoder.encode(cb, bb, true).isError() != true) {
-                bb.flip();
-                write(bb.array(), bb.arrayOffset() + bb.position(), bb.remaining());
-                bb.clear();
+            if (c != 0 && c <= 0x007f) {
+                writeByte(c);
+            } else if (c > 0x07ff) {
+                // 1110xxxx 10xxxxxx 10xxxxxx
+                writeByte(0xe0 | ((c >> 12) & 0x0f));
+                writeByte(0x80 | ((c >> 6) & 0x3f));
+                writeByte(0x80 | (c & 0x3f)); 
+            } else {
+                // 110xxxxx 10xxxxxx
+                writeByte(0xc0 | ((c >> 6) & 0x1f));
+                writeByte(0x80 | (c & 0x3f));
             }
         }
     }

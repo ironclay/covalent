@@ -3,17 +3,13 @@ package covalent.io;
 import com.google.common.base.Preconditions;
 import covalent.io.serialization.Serializer;
 import java.io.ByteArrayInputStream;
-import java.io.EOFException;
-import java.io.File;
-import java.io.FileInputStream;
-import java.io.FileOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
-import java.nio.BufferOverflowException;
-import java.nio.ByteBuffer;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.nio.file.StandardOpenOption;
+import java.util.Arrays;
 import org.apache.commons.io.FileUtils;
 import org.apache.commons.io.input.ClosedInputStream;
 import org.apache.commons.io.output.ClosedOutputStream;
@@ -33,7 +29,15 @@ public final class Blob {
      * <p/>
      * Default is Java's temporary-file directory.
      */
-    public static final File TEMPORARY_DIR = FileUtils.getTempDirectory();
+    public static final Path TEMPORARY_DIR = FileUtils.getTempDirectory().toPath();
+
+    static {
+        try {
+            Files.createDirectories(TEMPORARY_DIR);
+        } catch (IOException e) {
+            throw new ExceptionInInitializerError(e);
+        }
+    }
 
     /**
      * Indicates the size of the buffer to use.
@@ -51,7 +55,7 @@ public final class Blob {
         public Blob read(Input input) throws IOException {
             Blob blob = create();
 
-            try (OutputStream out = blob.openOutputStream(false)) {
+            try (OutputStream out = blob.openOutputStream()) {
                 long length = input.readLong();
 
                 // read all of the bytes.
@@ -81,9 +85,9 @@ public final class Blob {
     };
 
     /**
-     * The buffer.
+     * The byte array.
      */
-    private ByteBuffer buffer;
+    private byte[] array;
 
     /**
      * The length.
@@ -93,20 +97,19 @@ public final class Blob {
     /**
      * The file.
      */
-    private File file;
+    private Path file;
 
     /**
      * Sole constructor.
      * 
-     * @param bb the byte buffer
+     * @param array the byte array
      * @param file the temporary file
      * @param length the total number of bytes
      */
-    private Blob(ByteBuffer bb, File file, long length) {
-        Preconditions.checkArgument(bb != null ^ file != null);
-        Preconditions.checkArgument(bb == null || bb.hasArray());
+    private Blob(byte[] array, Path file, long length) {
+        Preconditions.checkArgument(array != null ^ file != null);
         Preconditions.checkArgument(length >= 0L);
-        this.buffer = bb;
+        this.array = array;
         this.file = file;
         this.length = length;
     }
@@ -129,9 +132,9 @@ public final class Blob {
      */
     public InputStream openInputStream() throws IOException {
         if (file != null) {
-            return new FileInputStream(file);
-        } else if (buffer != null) {
-            return new ByteArrayInputStream(buffer.array(), buffer.arrayOffset(), (int) length);
+            return Files.newInputStream(file);
+        } else if (array != null) {
+            return new ByteArrayInputStream(array, 0, (int) length);
         } else {
             return ClosedInputStream.CLOSED_INPUT_STREAM;
         }
@@ -158,22 +161,59 @@ public final class Blob {
      * @throws IOException if an I/O error occurs in the process of opening the stream
      */
     public OutputStream openOutputStream(boolean append) throws IOException {
-        OutputStream out = null;
+        OutputStream out;
 
         if (file != null) {
-            out = new FileOutputStream(file, append);
-        } else if (buffer != null) {
-            out = new BufferOutputStream();
-            buffer.position(append ? (int) length : 0);
+            if (append) {
+                out = Files.newOutputStream(file, StandardOpenOption.APPEND);
+            } else {
+                out = Files.newOutputStream(file);
+            }
+        } else if (array != null) {
+            // write to its array.
+            out = new OutputStream() {
+
+                @Override
+                public void write(int b) throws IOException {
+                    array[(int) length] = (byte) b;
+                }
+
+                @Override
+                public void write(byte[] b, int off, int len) throws IOException {
+                    System.arraycopy(b, 0, array, (int) length, len);
+                }
+
+            };
         } else {
-            throw new IOException("blob is closed");
+            return ClosedOutputStream.CLOSED_OUTPUT_STREAM;
         }
 
         if (append != true) {
             length = 0L;
         }
 
-        return new BlobOutputStream(out);
+        return new ProxyOutputStream(out) {
+
+            @Override
+            protected void beforeWrite(int n) throws IOException {
+                if (file == null && (n + length) > array.length) {
+                    file = createTemporaryFile();
+                    out = Files.newOutputStream(file);
+
+                    if (length != 0L) {
+                        // transfer bytes to the file.
+                        out.write(array, 0, (int) length);
+                        out.flush();
+                    }
+                }
+            }
+
+            @Override
+            protected void afterWrite(int n) throws IOException {
+                length += n;
+            }
+
+        };
     }
 
     /**
@@ -184,7 +224,7 @@ public final class Blob {
      * @throws IOException if an I/O error occurs in the process of writing to this blob
      */
     public void write(byte[] bytes) throws IOException {
-        try (OutputStream out = openOutputStream(false)) {
+        try (OutputStream out = openOutputStream()) {
             out.write(bytes);
         }
     }
@@ -196,14 +236,14 @@ public final class Blob {
      */
     public void switchToFile() throws IOException {
         if (file == null) {
-            file = File.createTempFile("covalent", ".blob", TEMPORARY_DIR);
+            file = createTemporaryFile();
 
-            if (buffer != null) {
+            if (array != null) {
                 // transfer bytes to the file.
-                try (OutputStream out = new FileOutputStream(file)) {
-                    out.write(buffer.array(), buffer.arrayOffset(), (int) length);
+                try (OutputStream out = Files.newOutputStream(file)) {
+                    out.write(array, 0, (int) length);
                 } finally {
-                    buffer = null;
+                    array = null;
                 }
             }
         }
@@ -214,9 +254,9 @@ public final class Blob {
      */
     public void free() {
         if (file != null) {
-            FileUtils.deleteQuietly(file);
+            FileUtils.deleteQuietly(file.toFile());
         } else {
-            buffer = null;
+            array = null;
         }
     }
 
@@ -229,13 +269,23 @@ public final class Blob {
      */
     public Blob copy() throws IOException {
         if (file != null) {
-            File f = createTempFile();
-            FileUtils.copyFile(file, f);
-            return new Blob(null, f, length);
-        } else if (buffer != null) {
-            ByteBuffer bb = ByteBuffer.allocate(buffer.capacity());
-            bb.put(buffer.array(), buffer.arrayOffset(), (int) length);
-            return new Blob(bb, null, length);
+            Path target = createTemporaryFile();
+
+            if (length != 0L) {
+                Files.copy(file, target);
+            }
+
+            return new Blob(null, target, length);
+        } else if (array != null) {
+            byte[] copy;
+
+            if (array.length != 0) {
+                copy = Arrays.copyOf(array, array.length);
+            } else {
+                copy = ArrayUtils.EMPTY_BYTE_ARRAY;
+            }
+
+            return new Blob(copy, null, length);
         }
 
         return Blob.empty();
@@ -256,7 +306,7 @@ public final class Blob {
      * @return the blob
      */
     public static Blob create() {
-        return new Blob(ByteBuffer.allocate(BUFFER_SIZE), null, 0L);
+        return new Blob(new byte[BUFFER_SIZE], null, 0L);
     }
 
     /**
@@ -270,7 +320,7 @@ public final class Blob {
      * @return the blob
      */
     public static Blob wrap(byte[] array) {
-        return new Blob(ByteBuffer.wrap(array), null, array.length);
+        return new Blob(array, null, array.length);
     }
 
     /**
@@ -288,7 +338,7 @@ public final class Blob {
      * @see Files#size(java.nio.file.Path) 
      */
     public static Blob wrap(Path file) throws IOException {
-        return new Blob(null, file.toFile(), Files.size(file));
+        return new Blob(null, file, Files.size(file));
     }
 
     /**
@@ -307,64 +357,8 @@ public final class Blob {
      * 
      * @throws IOException if an I/O error occurs
      */
-    private static File createTempFile() throws IOException {
-        FileUtils.forceMkdir(TEMPORARY_DIR);
-        return File.createTempFile("covalent", ".blob", TEMPORARY_DIR);
-    }
-
-    /**
-     * An output stream for writing data to this blob.
-     * <p/>
-     * Before writing any bytes to the buffer this class verifies that there is sufficient space remaining. If there
-     * isn't then it will switch to writing to a file and any bytes that were previously written will be transferred.
-     */
-    private final class BlobOutputStream extends ProxyOutputStream {
-
-        /**
-         * Sole constructor.
-         * 
-         * @param out the output stream to delegate to
-         */
-        private BlobOutputStream(OutputStream out) throws IOException {
-            super(out);
-        }
-
-        @Override
-        protected void beforeWrite(int n) throws IOException {
-            if (file == null && n > buffer.remaining()) {
-                file = createTempFile();
-                out = new FileOutputStream(file);
-
-                if (length != 0L) {
-                    // transfer bytes to the file.
-                    out.write(buffer.array(), buffer.arrayOffset(), (int) length);
-                    out.flush();
-                }
-            }
-        }
-
-        @Override
-        protected void afterWrite(int n) throws IOException {
-            length += n;
-        }
-
-    }
-
-    /**
-     * An output stream in which the data is written into the blob's buffer.
-     */
-    private final class BufferOutputStream extends OutputStream {
-
-        @Override
-        public void write(int b) throws IOException {
-            buffer.put((byte) b);
-        }
-
-        @Override
-        public void write(byte[] b, int off, int len) throws IOException {
-            buffer.put(b, off, len);
-        }
-
+    private static Path createTemporaryFile() throws IOException {
+        return Files.createTempFile(TEMPORARY_DIR, "covalent", ".blob");
     }
 
 }

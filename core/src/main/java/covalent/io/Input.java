@@ -3,11 +3,8 @@ package covalent.io;
 import com.google.common.base.Preconditions;
 import java.io.DataInput;
 import java.io.IOException;
-import java.nio.ByteBuffer;
-import java.nio.CharBuffer;
-import java.nio.charset.CharsetDecoder;
-import java.nio.charset.CoderResult;
-import java.nio.charset.StandardCharsets;
+import java.io.UTFDataFormatException;
+import org.apache.commons.lang3.StringUtils;
 
 /**
  * Class for reading Java primitive types from a stream of bytes.
@@ -26,11 +23,6 @@ public final class Input {
      * The byte array to use for copying bytes.
      */
     public final byte[] buffer;
-
-    /**
-     * The UTF-8 decoder.
-     */
-    private final CharsetDecoder decoder = StandardCharsets.UTF_8.newDecoder();
 
     /**
      * Sole constructor.
@@ -193,40 +185,57 @@ public final class Input {
     }
 
     /**
-     * Read a {@link String} from the input stream.
+     * Read a {@link String} from the input stream that has been encoded using a modified UTF-8 format.
      * 
      * @return a String of characters
      * 
      * @throws IOException if an I/O error occurs
      */
-    public String readString() throws IOException {
-        return readUTF8();
-    }
+    public String readUTF() throws IOException {
+        int len = readInt(); // # of characters
 
-    /**
-     * Read some of the bytes from the input stream and decode them into characters using the UTF-8 character encoding.
-     * 
-     * @param in the input byte buffer
-     * 
-     * @return a String of characters
-     * 
-     * @throws IOException if an I/O error occurs
-     */
-    private String readUTF8() throws IOException {
-        int length = readInt(); // character count
-        long remaining = readLong(); // remaining byte count
-        
-        // buffers
-        CharBuffer cb = CharBuffer.allocate(length);
-        ByteBuffer bb = ByteBuffer.wrap(buffer);
+        if (len != 0) {
+            char[] array = new char[len];
 
-        for (decoder.reset(); remaining > 0; remaining -= bb.position(), bb.flip()) {
-            int len = (int) Math.min(remaining, bb.remaining());
-            readFully(bb.array(), bb.arrayOffset() + bb.position(), len);
-            decoder.decode(bb, cb, len == remaining);
+            for (int i = 0; i < array.length; i++) {
+                int b1 = readByte(), b2, b3;
+
+                switch (b1 >> 4) {
+                    case 0xc:
+                    case 0xd: // 110xxxxx 10xxxxxx
+                        b2 = readByte();
+
+                        if ((b2 & 0xc0) == 0x80) {
+                            array[i] = (char) (((b1 & 0x1f) << 6) | (b1 & 0x3f));
+                        } else {
+                            throw new UTFDataFormatException();
+                        }
+
+                        break;
+                    case 0xe: // 1110xxxx 10xxxxxx 10xxxxxx
+                        b2 = readByte();
+                        b3 = readByte();
+
+                        if ((b2 & 0xc0) == 0x80 && (b3 & 0xc0) == 0x80) {
+                            array[i] = (char) (((b1 & 0x0f) << 12) | ((b2 & 0x3f) << 6) | (b3 & 0x3f));
+                        } else {
+                            throw new UTFDataFormatException();
+                        }
+
+                        break;
+                    default:
+                        if (b1 < 0) {
+                            throw new UTFDataFormatException();
+                        } else {
+                            array[i] = (char) b1;
+                        }
+                }
+            }
+
+            return new String(array);
         }
 
-        return cb.flip().toString();
+        return StringUtils.EMPTY;
     }
 
 }

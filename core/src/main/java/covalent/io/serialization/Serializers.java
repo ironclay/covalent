@@ -6,10 +6,10 @@ import covalent.io.Input;
 import covalent.io.Output;
 import java.io.IOException;
 import java.net.URL;
-import java.nio.charset.StandardCharsets;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.Date;
+import org.apache.commons.lang3.StringUtils;
 
 /**
  * Factory for out-of-the-box {@link Serializer} implementations.
@@ -139,21 +139,21 @@ public final class Serializers {
     };
 
     /**
-     * Serializer for a sequence of Unicode characters encoded using {@link StandardCharsets#UTF_8 UTF-8}.
+     * Serializer for a sequence of Unicode characters.
      * 
-     * @see Input#readString() 
-     * @see Output#writeString(java.lang.CharSequence) 
+     * @see Input#readUTF() 
+     * @see Output#writeUTF(java.lang.CharSequence) 
      */
-    public static final Serializer<String> UTF8 = new Serializer<String>() {
+    public static final Serializer<String> UTF = new Serializer<String>() {
 
         @Override
         public String read(Input input) throws IOException {
-            return input.readString();
+            return input.readUTF();
         }
 
         @Override
         public void write(Output output, String value) throws IOException {
-            output.writeString(value);
+            output.writeUTF(value);
         }
 
     };
@@ -165,13 +165,19 @@ public final class Serializers {
 
         @Override
         public String read(Input input) throws IOException {
-            char[] cbuf = new char[input.readInt()];
+            int length = input.readInt();
 
-            for (int i = 0; i < cbuf.length; i++) {
-                cbuf[i] = (char) input.readByte();
+            if (length != 0) {
+                char[] array = new char[length];
+
+                for (int i = 0; i < length; i++) {
+                    array[i] = (char) input.readByte();
+                }
+
+                return new String(array);
             }
 
-            return new String(cbuf);
+            return StringUtils.EMPTY;
         }
 
         @Override
@@ -179,8 +185,7 @@ public final class Serializers {
             output.writeInt(value.length());
 
             for (int i = 0, len = value.length(); i < len; i++) {
-                char c = value.charAt(i);
-                output.writeByte(c);
+                output.writeByte((byte) value.charAt(i));
             }
         }
 
@@ -211,14 +216,14 @@ public final class Serializers {
 
         @Override
         public URL read(Input input) throws IOException {
-            String spec = input.readString();
+            String spec = input.readUTF();
             return new URL(spec);
         }
 
         @Override
         public void write(Output output, URL value) throws IOException {
             String spec = value.toString();
-            output.writeString(spec);
+            output.writeUTF(spec);
         }
 
     };
@@ -231,11 +236,11 @@ public final class Serializers {
         @Override
         public Path read(Input input) throws IOException {
             int count = input.readInt() + (input.readBoolean() ? 1 : 0);
-            String first = input.readString();
+            String first = input.readUTF();
             String[] more = new String[count - 1];
 
             for (int i = 0; i < more.length; i++) {
-                more[i] = input.readString();
+                more[i] = input.readUTF();
             }
 
             return Paths.get(first, more);
@@ -247,7 +252,7 @@ public final class Serializers {
 
             if (value.getRoot() != null) {
                 output.writeBoolean(true);
-                output.writeString(value.getRoot().toString());
+                output.writeUTF(value.getRoot().toString());
             } else {
                 output.writeBoolean(false);
             }
@@ -255,7 +260,7 @@ public final class Serializers {
             // write the name elements.
             for (int i = 0, count = value.getNameCount(); i < count; i++) {
                 String name = value.getName(i).toString();
-                output.writeString(name);
+                output.writeUTF(name);
             }
         }
 
